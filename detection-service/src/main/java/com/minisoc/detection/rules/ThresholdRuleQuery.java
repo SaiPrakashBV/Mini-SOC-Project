@@ -23,7 +23,10 @@ public final class ThresholdRuleQuery {
         filters.add(Map.of("range", Map.of(TIMESTAMP, Map.of(
                 "gte", now.minus(rule.window()).toString(),
                 "lte", now.toString()))));
-        rule.match().forEach((field, values) -> filters.add(Map.of("terms", Map.of(field, values))));
+        List<Object> matchClauses = termsClauses(rule.match());
+        List<Object> requireClauses = termsClauses(rule.require());
+        boolean hasRequire = !requireClauses.isEmpty();
+        if (!hasRequire) filters.addAll(matchClauses);
         if (rule.pathPrefix() != null && !rule.pathPrefix().isBlank()) {
             filters.add(Map.of("prefix", Map.of("http_path", rule.pathPrefix())));
         }
@@ -40,27 +43,60 @@ public final class ThresholdRuleQuery {
                 "size", 5,
                 "sort", List.of(Map.of(TIMESTAMP, Map.of("order", "desc"))),
                 "_source", List.of(TIMESTAMP, "event_type", "message", "username", "source_ip", "http_method",
-                        "http_path", "http_status", "correlation_id", "reason"))));
+                        "http_path", "http_status", "correlation_id", "reason", "attack_type", "attack_sample"))));
+        if (rule.hasDistinctCondition()) {
+            subAggs.put("distinct", Map.of("cardinality", Map.of("field", rule.distinctField())));
+        }
+
+        Map<String, Object> bool = new LinkedHashMap<>();
+        bool.put("filter", filters);
+        bool.put("must_not", mustNot);
+        Map<String, Object> terms = new LinkedHashMap<>();
+        terms.put("field", rule.groupBy());
+        terms.put("size", MAX_ENTITIES);
+        if (hasRequire) {
+            // Fetch events matching either side, then count them separately per entity:
+            // the threshold applies to "matched" only, and "required" must be >= 1.
+            bool.put("should", List.of(
+                    Map.of("bool", Map.of("filter", matchClauses)),
+                    Map.of("bool", Map.of("filter", requireClauses))));
+            bool.put("minimum_should_match", 1);
+            subAggs.put("matched", Map.of("filter", Map.of("bool", Map.of("filter", matchClauses))));
+            subAggs.put("required", Map.of("filter", Map.of("bool", Map.of("filter", requireClauses))));
+            terms.put("min_doc_count", 1);
+            terms.put("order", Map.of("matched", "desc"));
+        } else {
+            terms.put("min_doc_count", rule.threshold());
+            terms.put("order", Map.of("_count", "desc"));
+        }
 
         return Map.of(
                 "size", 0,
                 "track_total_hits", false,
-                "query", Map.of("bool", Map.of("filter", filters, "must_not", mustNot)),
-                "aggs", Map.of("by_entity", Map.of(
-                        "terms", Map.of(
-                                "field", rule.groupBy(),
-                                "min_doc_count", rule.threshold(),
-                                "size", MAX_ENTITIES,
-                                "order", Map.of("_count", "desc")),
-                        "aggs", subAggs)));
+                "query", Map.of("bool", bool),
+                "aggs", Map.of("by_entity", Map.of("terms", terms, "aggs", subAggs)));
+    }
+
+    private static List<Object> termsClauses(Map<String, List<String>> fieldValues) {
+        List<Object> clauses = new ArrayList<>();
+        fieldValues.forEach((field, values) -> clauses.add(Map.of("terms", Map.of(field, values))));
+        return clauses;
     }
 
     public static List<DetectionAlert> parse(RuleDefinition rule, JsonNode response, Instant now) {
         List<DetectionAlert> alerts = new ArrayList<>();
         JsonNode buckets = response.path("aggregations").path("by_entity").path("buckets");
         for (JsonNode bucket : buckets) {
-            long count = bucket.path("doc_count").asLong();
+            boolean hasRequire = !rule.require().isEmpty();
+            long count = hasRequire ? bucket.path("matched").path("doc_count").asLong()
+                    : bucket.path("doc_count").asLong();
             if (count < rule.threshold()) continue;
+            Long distinct = null;
+            if (rule.hasDistinctCondition()) {
+                distinct = bucket.path("distinct").path("value").asLong();
+                if (distinct < rule.minDistinct()) continue;
+            }
+            if (hasRequire && bucket.path("required").path("doc_count").asLong() == 0) continue;
             alerts.add(new DetectionAlert(
                     UUID.randomUUID().toString(),
                     now,
@@ -72,6 +108,7 @@ public final class ThresholdRuleQuery {
                     rule.groupBy(),
                     bucket.path("key").asText(),
                     count,
+                    distinct,
                     rule.threshold(),
                     humanize(rule.window()),
                     instant(bucket.path("first_seen")),

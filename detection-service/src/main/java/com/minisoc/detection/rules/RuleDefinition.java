@@ -19,6 +19,10 @@ import java.util.Map;
  * @param escalateAt   count at which severity is raised to {@code escalateTo}
  * @param suppress     how long to stay quiet for the same entity after firing (defaults to window)
  * @param mitre        MITRE ATT&CK technique id, for analyst context
+ * @param require      field -> values; the group must contain at least one matching event
+ *                     (e.g. a LOGIN_SUCCESS among the failures for account takeover)
+ * @param distinctField when set, the group must also have at least {@code minDistinct}
+ *                     different values of this field (e.g. many source IPs for one user)
  */
 public record RuleDefinition(
         @NotBlank String id,
@@ -35,13 +39,21 @@ public record RuleDefinition(
         Severity escalateTo,
         Duration suppress,
         String mitre,
-        Boolean enabled) {
+        Boolean enabled,
+        Map<String, List<String>> require,
+        String distinctField,
+        Integer minDistinct) {
 
     public RuleDefinition {
         if (match == null) match = Map.of();
         if (exclude == null) exclude = Map.of();
         if (suppress == null) suppress = window;
         if (enabled == null) enabled = true;
+        if (require == null) require = Map.of();
+    }
+
+    public boolean hasDistinctCondition() {
+        return distinctField != null && !distinctField.isBlank() && minDistinct != null;
     }
 
     public Severity severityFor(long count) {

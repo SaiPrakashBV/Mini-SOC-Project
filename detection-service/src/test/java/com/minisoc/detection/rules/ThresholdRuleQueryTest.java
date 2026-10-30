@@ -17,7 +17,7 @@ class ThresholdRuleQueryTest {
 
     private final RuleDefinition bruteForce = new RuleDefinition("BRUTE_FORCE_LOGIN", "Potential brute-force login",
             null, Severity.HIGH, Duration.ofMinutes(2), 5, "username",
-            Map.of("event_type", List.of("LOGIN_FAILURE")), null, null, 20, Severity.CRITICAL, null, "T1110", null);
+            Map.of("event_type", List.of("LOGIN_FAILURE")), null, null, 20, Severity.CRITICAL, null, "T1110", null, null, null, null);
 
     @Test
     void buildsWindowedTermsAggregation() {
@@ -57,6 +57,53 @@ class ThresholdRuleQueryTest {
         assertThat(alice.fingerprint()).isEqualTo("BRUTE_FORCE_LOGIN:username:alice");
         assertThat(alice.samples().getFirst()).containsEntry("http_status", 401);
         assertThat(alerts.get(1).severity()).isEqualTo(Severity.CRITICAL);
+    }
+
+    @Test
+    void distinctConditionFiltersBuckets() throws Exception {
+        var distributed = new RuleDefinition("DISTRIBUTED_BRUTE_FORCE", "Distributed brute force", null,
+                Severity.HIGH, Duration.ofMinutes(10), 5, "username",
+                Map.of("event_type", List.of("LOGIN_FAILURE")), null, null, null, null, null, null, null,
+                null, "source_ip", 5);
+        JsonNode q = mapper.valueToTree(ThresholdRuleQuery.build(distributed, Instant.now()));
+        assertThat(q.at("/aggs/by_entity/aggs/distinct/cardinality/field").asText()).isEqualTo("source_ip");
+
+        String response = """
+                {"aggregations":{"by_entity":{"buckets":[
+                  {"key":"admin","doc_count":6,"distinct":{"value":6}},
+                  {"key":"alice","doc_count":9,"distinct":{"value":1}}
+                ]}}}
+                """;
+        var alerts = ThresholdRuleQuery.parse(distributed, mapper.readTree(response), Instant.now());
+        assertThat(alerts).extracting(DetectionAlert::entity).containsExactly("admin");
+        assertThat(alerts.getFirst().distinctCount()).isEqualTo(6L);
+    }
+
+    @Test
+    void requireConditionNeedsAMatchingEvent() throws Exception {
+        var takeover = new RuleDefinition("ACCOUNT_TAKEOVER", "Account takeover", null, Severity.CRITICAL,
+                Duration.ofMinutes(10), 5, "source_ip",
+                Map.of("event_type", List.of("LOGIN_FAILURE")), null, null, null, null, null,
+                null, null, Map.of("event_type", List.of("LOGIN_SUCCESS")), null, null);
+        JsonNode q = mapper.valueToTree(ThresholdRuleQuery.build(takeover, Instant.now()));
+        assertThat(q.at("/aggs/by_entity/aggs/required/filter/bool/filter/0/terms/event_type/0").asText())
+                .isEqualTo("LOGIN_SUCCESS");
+        assertThat(q.at("/aggs/by_entity/aggs/matched/filter/bool/filter/0/terms/event_type/0").asText())
+                .isEqualTo("LOGIN_FAILURE");
+        assertThat(q.at("/query/bool/minimum_should_match").asInt()).isEqualTo(1);
+        assertThat(q.at("/aggs/by_entity/terms/min_doc_count").asInt()).isEqualTo(1);
+
+        String response = """
+                {"aggregations":{"by_entity":{"buckets":[
+                  {"key":"45.155.205.233","doc_count":7,"matched":{"doc_count":6},"required":{"doc_count":1}},
+                  {"key":"203.0.113.66","doc_count":6,"matched":{"doc_count":6},"required":{"doc_count":0}},
+                  {"key":"10.0.0.11","doc_count":9,"matched":{"doc_count":0},"required":{"doc_count":9}}
+                ]}}}
+                """;
+        var alerts = ThresholdRuleQuery.parse(takeover, mapper.readTree(response), Instant.now());
+        assertThat(alerts).extracting(DetectionAlert::entity).containsExactly("45.155.205.233");
+        assertThat(alerts.getFirst().count()).isEqualTo(6);
+        assertThat(alerts.getFirst().distinctCount()).isNull();
     }
 
     @Test

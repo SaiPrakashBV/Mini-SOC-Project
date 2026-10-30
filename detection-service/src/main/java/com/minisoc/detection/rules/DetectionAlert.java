@@ -18,6 +18,7 @@ public record DetectionAlert(
         String groupBy,
         String entity,
         long count,
+        Long distinctCount,
         int threshold,
         String window,
         Instant firstSeen,
@@ -46,6 +47,6 @@ public record DetectionAlert(
 
     public DetectionAlert withIncidentId(Long id) {
         return new DetectionAlert(alertId, timestamp, ruleId, ruleName, description, severity, mitre, groupBy, entity,
-                count, threshold, window, firstSeen, lastSeen, sourceIps, usernames, paths, samples, id);
+                count, distinctCount, threshold, window, firstSeen, lastSeen, sourceIps, usernames, paths, samples, id);
     }
 }

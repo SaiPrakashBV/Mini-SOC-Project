@@ -138,6 +138,7 @@ button.link { background: none; border: none; color: var(--accent); cursor: poin
 .c-denied { fill: var(--critical); background: var(--critical); }
 .c-token { fill: #a78bfa; background: #a78bfa; }
 .c-idor { fill: var(--accent); background: var(--accent); }
+.c-malicious { fill: #f472b6; background: #f472b6; }
 .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 0.78rem; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 

@@ -22,7 +22,10 @@ export default function EventTable({ events, compact = false }) {
           {events.map((e, i) => (
             <tr key={`${e.correlation_id}-${e['@timestamp']}-${i}`}>
               <td className="nowrap">{formatTime(e['@timestamp'])}</td>
-              <td><EventTypeBadge type={e.event_type} /></td>
+              <td>
+                <EventTypeBadge type={e.event_type} />
+                {e.attack_type && <div className="muted small mono">{e.attack_type}</div>}
+              </td>
               <td>{e.username && e.username !== 'anonymous'
                 ? <Link to={`/events?username=${encodeURIComponent(e.username)}`}>{e.username}</Link>
                 : <span className="muted">{e.username || '—'}</span>}</td>

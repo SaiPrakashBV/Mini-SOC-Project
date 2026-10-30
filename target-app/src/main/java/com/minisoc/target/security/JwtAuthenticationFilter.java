@@ -55,6 +55,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 var auth = new UsernamePasswordAuthenticationToken(username, null, authorities);
                 SecurityContextHolder.getContext().setAuthentication(auth);
                 MDC.put(RequestContext.MDC_USERNAME, username);
+                if (claims.getId() != null) MDC.put(RequestContext.MDC_TOKEN_ID, claims.getId());
                 request.setAttribute(RequestContext.ATTR_USERNAME, username);
             } catch (ExpiredJwtException e) {
                 events.failure(SecurityEventType.TOKEN_INVALID, "Expired JWT presented",

@@ -130,3 +130,128 @@ detection:
       match:
         event_type: [TOKEN_INVALID]
       mitre: T1550.001
+
+    # ----------------------------------------------------------------------
+    # Advanced detections: correlation (require), cardinality (distinct-field)
+    # and payload-signature events from the target app's input inspection.
+    # ----------------------------------------------------------------------
+    - id: ACCOUNT_TAKEOVER
+      name: Successful login after repeated failures
+      description: >-
+        A source IP failed to log in repeatedly and then succeeded - the password was
+        probably guessed or stuffed. Treat the account as compromised.
+      severity: CRITICAL
+      window: 10m
+      threshold: 5
+      group-by: source_ip
+      match:
+        event_type: [LOGIN_FAILURE]
+      require:
+        event_type: [LOGIN_SUCCESS]
+      mitre: T1110 / T1078
+
+    - id: DISTRIBUTED_BRUTE_FORCE
+      name: Distributed brute force on one account
+      description: Failed logins for the same account from many different IPs (botnet / proxy rotation).
+      severity: HIGH
+      window: 10m
+      threshold: 5
+      group-by: username
+      distinct-field: source_ip
+      min-distinct: 5
+      match:
+        event_type: [LOGIN_FAILURE]
+      mitre: T1110.004
+
+    - id: SESSION_HIJACK
+      name: Session token used from multiple IPs
+      description: The same JWT (token_id) was used successfully from several source IPs - likely a stolen token.
+      severity: HIGH
+      window: 10m
+      threshold: 3
+      group-by: token_id
+      distinct-field: source_ip
+      min-distinct: 3
+      match:
+        event_type: [HTTP_REQUEST]
+        outcome: [SUCCESS]
+      mitre: T1550.001
+
+    - id: INJECTION_ATTEMPT
+      name: Injection payloads in requests
+      description: SQL injection, XSS, path traversal or command injection payloads blocked by input inspection.
+      severity: HIGH
+      window: 5m
+      threshold: 3
+      escalate-at: 20
+      escalate-to: CRITICAL
+      group-by: source_ip
+      match:
+        event_type: [MALICIOUS_REQUEST]
+        attack_type: [sql_injection, xss, path_traversal, command_injection]
+      mitre: T1190
+
+    - id: LOG4SHELL_EXPLOIT
+      name: Log4Shell (JNDI) exploitation attempt
+      # Do not write the dollar-brace JNDI syntax here: Spring would treat it as a config placeholder.
+      description: A JNDI lookup expression was sent (CVE-2021-44228). A single attempt is enough to alert.
+      severity: CRITICAL
+      window: 10m
+      threshold: 1
+      group-by: source_ip
+      match:
+        event_type: [MALICIOUS_REQUEST]
+        attack_type: [jndi_injection]
+      mitre: T1190
+
+    - id: SCANNER_TOOL
+      name: Security scanner detected
+      description: Requests carrying the user agent of an automated attack/scanning tool (sqlmap, nikto, nuclei...).
+      severity: MEDIUM
+      window: 5m
+      threshold: 5
+      group-by: source_ip
+      match:
+        event_type: [MALICIOUS_REQUEST]
+        attack_type: [scanner_tool]
+      mitre: T1595.002
+
+    - id: RECON_PATH_SCAN
+      name: Directory / endpoint discovery
+      description: One source requested many different non-existent or forbidden paths (.env, .git, wp-admin...).
+      severity: MEDIUM
+      window: 2m
+      threshold: 10
+      group-by: source_ip
+      distinct-field: http_path
+      min-distinct: 10
+      match:
+        event_type: [HTTP_REQUEST]
+        http_status: ["401", "403", "404"]
+      mitre: T1595.003
+
+    - id: DATA_SCRAPING
+      name: Bulk data access by one user
+      description: An authenticated user read an unusual number of order records in a short period (possible exfiltration).
+      severity: HIGH
+      window: 1m
+      threshold: 40
+      group-by: username
+      path-prefix: /api/orders
+      match:
+        event_type: [HTTP_REQUEST]
+        http_method: [GET]
+        http_status: ["200"]
+      mitre: T1213
+
+    - id: JWT_ALG_NONE
+      name: Unsigned JWT (alg=none) forgery
+      description: A token with no signature was presented - an attempt to forge credentials.
+      severity: HIGH
+      window: 10m
+      threshold: 1
+      group-by: source_ip
+      match:
+        event_type: [TOKEN_INVALID]
+        reason: [UnsupportedJwtException]
+      mitre: T1606.001

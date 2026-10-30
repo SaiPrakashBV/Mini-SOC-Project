@@ -16,7 +16,8 @@ public class EventQueryService {
 
     /** Events worth an analyst's attention: failures and every authorization problem. */
     private static final List<String> SUSPICIOUS_TYPES = List.of(
-            "LOGIN_FAILURE", "UNAUTHORIZED", "ACCESS_DENIED", "TOKEN_INVALID", "RESOURCE_OWNERSHIP_VIOLATION");
+            "LOGIN_FAILURE", "UNAUTHORIZED", "ACCESS_DENIED", "TOKEN_INVALID", "RESOURCE_OWNERSHIP_VIOLATION",
+            "MALICIOUS_REQUEST");
 
     private final OpenSearchClient client;
     private final String index;

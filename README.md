@@ -91,7 +91,7 @@ docker compose up -d --build
 powershell -ExecutionPolicy Bypass -File scripts\simulate-attacks.ps1
 ```
 
-Run one scenario with `... simulate-attacks.ps1 bruteforce`. The `.gitattributes` file keeps shell
+Run one scenario with `... simulate-attacks.ps1 bruteforce`, or a group with `... simulate-attacks.ps1 advanced`. The `.gitattributes` file keeps shell
 scripts and configs mounted into Linux containers on LF line endings. If you cloned before it existed,
 refresh your working copy once:
 
@@ -124,8 +124,42 @@ Rules live in `detection-service/src/main/resources/application.yml`. You can ad
 | `RESTRICTED_ENDPOINT_ACCESS` | ≥ 3 `ACCESS_DENIED` on `/api/admin*` per username in 5m | HIGH |
 | `IDOR_ATTEMPT` | ≥ 3 `RESOURCE_OWNERSHIP_VIOLATION` per username in 10m | HIGH |
 | `INVALID_TOKEN_ABUSE` | ≥ 10 `TOKEN_INVALID` per source IP in 5m | MEDIUM |
+| `ACCOUNT_TAKEOVER` | ≥ 5 `LOGIN_FAILURE` **and** ≥ 1 `LOGIN_SUCCESS` from one source IP in 10m | CRITICAL |
+| `DISTRIBUTED_BRUTE_FORCE` | ≥ 5 `LOGIN_FAILURE` per username from **≥ 5 distinct IPs** in 10m | HIGH |
+| `SESSION_HIJACK` | one JWT (`token_id`) used successfully from **≥ 3 distinct IPs** in 10m | HIGH |
+| `INJECTION_ATTEMPT` | ≥ 3 SQLi / XSS / path-traversal / command-injection payloads per IP in 5m | HIGH → CRITICAL at 20 |
+| `LOG4SHELL_EXPLOIT` | any `${jndi:...}` lookup string (CVE-2021-44228) | CRITICAL |
+| `SCANNER_TOOL` | ≥ 5 requests with a scanner user agent (sqlmap, nikto, nuclei…) per IP in 5m | MEDIUM |
+| `RECON_PATH_SCAN` | 401/403/404 on **≥ 10 distinct paths** per IP in 2m | MEDIUM |
+| `DATA_SCRAPING` | ≥ 40 successful `GET /api/orders*` per user in 1m | HIGH |
+| `JWT_ALG_NONE` | any unsigned (`alg: none`) JWT | HIGH |
 
-Simulator scenarios: `baseline bruteforce spray privesc idor tokens flood`.
+Rules support three kinds of condition, all configured in YAML:
+
+- **Threshold:** `match` + `group-by` + `threshold` within `window`.
+- **Cardinality:** `distinct-field` + `min-distinct`, e.g. many different IPs for one account.
+- **Correlation:** `require`. The group must also contain a different kind of event, and the
+  threshold counts only the `match` events (e.g. failures, then a success).
+
+The injection, Log4Shell and scanner rules rely on `AttackSignatureFilter` in the target app. It is a
+minimal WAF that inspects the path, query parameters and headers (not request bodies), logs a
+`MALICIOUS_REQUEST` event with `attack_type`, and blocks payloads with HTTP 400. Scanner user agents
+are logged but not blocked.
+
+Simulator scenarios (run one, several, or the groups `basic` / `advanced`; no argument runs all):
+
+| Group | Scenarios |
+|---|---|
+| basic | `baseline bruteforce spray privesc idor tokens flood` |
+| advanced | `takeover distributed hijack injection log4shell recon scanner scraping algnone` |
+
+```bash
+./scripts/simulate-attacks.sh advanced
+```
+
+```bash
+./scripts/simulate-attacks.sh takeover hijack
+```
 
 ## Security event schema (target-app)
 
@@ -134,10 +168,12 @@ Every line in `app.json` is one JSON object. Audit events carry these fields:
 | Field | Example |
 |---|---|
 | `@timestamp` | `2026-10-30T20:05:25.724Z` (UTC) |
-| `event_type` | `LOGIN_SUCCESS`, `LOGIN_FAILURE`, `TOKEN_INVALID`, `UNAUTHORIZED`, `ACCESS_DENIED`, `RESOURCE_OWNERSHIP_VIOLATION`, `ADMIN_ACTION`, `ORDER_CREATED`, `HTTP_REQUEST` |
+| `event_type` | `LOGIN_SUCCESS`, `LOGIN_FAILURE`, `TOKEN_INVALID`, `UNAUTHORIZED`, `ACCESS_DENIED`, `RESOURCE_OWNERSHIP_VIOLATION`, `MALICIOUS_REQUEST`, `ADMIN_ACTION`, `ORDER_CREATED`, `HTTP_REQUEST` |
 | `event_category` / `outcome` | `authentication` / `FAILURE` |
 | `username`, `source_ip`, `correlation_id` | `alice`, `203.0.113.66`, UUID (also returned as the `X-Correlation-ID` header) |
 | `http_method`, `http_path`, `http_status`, `duration_ms`, `user_agent` | on `HTTP_REQUEST` events |
+| `token_id` | JWT id (`jti`) on every authenticated request |
+| `attack_type`, `attack_location`, `attack_sample` | on `MALICIOUS_REQUEST`: e.g. `sql_injection`, `param:id`, the payload |
 | `reason`, `roles`, `resource_id`, … | event-specific details |
 
 ## APIs

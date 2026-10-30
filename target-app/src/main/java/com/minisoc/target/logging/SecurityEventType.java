@@ -13,6 +13,7 @@ public enum SecurityEventType {
     ADMIN_ACTION("privileged"),
     ORDER_CREATED("business"),
     RESOURCE_OWNERSHIP_VIOLATION("authorization"),
+    MALICIOUS_REQUEST("attack"),
     HTTP_REQUEST("access");
 
     private final String category;

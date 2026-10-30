@@ -32,6 +32,12 @@ class ApplicationContextTest {
         assertThat(bruteForce.match()).containsKey("event_type");
         var authSpike = props.rules().stream().filter(r -> r.id().equals("AUTH_ERROR_SPIKE")).findFirst().orElseThrow();
         assertThat(authSpike.match().get("http_status")).containsExactly("401", "403");
+        assertThat(props.rules()).hasSize(16);
+        var takeover = props.rules().stream().filter(r -> r.id().equals("ACCOUNT_TAKEOVER")).findFirst().orElseThrow();
+        assertThat(takeover.require().get("event_type")).containsExactly("LOGIN_SUCCESS");
+        var hijack = props.rules().stream().filter(r -> r.id().equals("SESSION_HIJACK")).findFirst().orElseThrow();
+        assertThat(hijack.hasDistinctCondition()).isTrue();
+        assertThat(hijack.minDistinct()).isEqualTo(3);
     }
 
     @Test

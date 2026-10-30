@@ -6,6 +6,7 @@ const SERIES = [
   { key: 'ACCESS_DENIED', label: '403 Access denied', className: 'c-denied' },
   { key: 'TOKEN_INVALID', label: 'Invalid token', className: 'c-token' },
   { key: 'RESOURCE_OWNERSHIP_VIOLATION', label: 'IDOR attempt', className: 'c-idor' },
+  { key: 'MALICIOUS_REQUEST', label: 'Malicious payload / scanner', className: 'c-malicious' },
 ];
 
 export default function ActivityChart({ series = [], height = 180 }) {

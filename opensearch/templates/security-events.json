@@ -37,6 +37,10 @@
         "reason":          { "type": "keyword" },
         "roles":           { "type": "keyword" },
         "resource_id":     { "type": "keyword" },
+        "token_id":        { "type": "keyword" },
+        "attack_type":     { "type": "keyword" },
+        "attack_location": { "type": "keyword" },
+        "attack_sample":   { "type": "keyword", "ignore_above": 512 },
         "stack_trace":     { "type": "text" }
       }
     }

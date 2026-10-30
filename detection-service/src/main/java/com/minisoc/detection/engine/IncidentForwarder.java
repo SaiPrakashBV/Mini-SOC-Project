@@ -46,6 +46,9 @@ public class IncidentForwarder {
                         a.ruleId(), a.count(), a.groupBy(), a.entity(), a.firstSeen(), a.lastSeen(),
                         a.threshold(), a.window(),
                         a.mitre() == null ? "" : "\nMITRE ATT&CK: " + a.mitre()));
+        if (a.distinctCount() != null) {
+            body.put("description", body.get("description") + "\nDistinct values: " + a.distinctCount());
+        }
         body.put("severity", a.severity().name());
         body.put("ruleId", a.ruleId());
         body.put("fingerprint", a.fingerprint());
@@ -53,7 +56,7 @@ public class IncidentForwarder {
         body.put("sourceIp", "source_ip".equals(a.groupBy()) ? a.entity()
                 : a.sourceIps().isEmpty() ? null : a.sourceIps().getFirst());
         body.put("detectedAt", a.firstSeen() != null ? a.firstSeen().toString() : a.timestamp().toString());
-        body.put("evidence", Map.of(
+        Map<String, Object> evidence = new LinkedHashMap<>(Map.of(
                 "alertId", a.alertId(),
                 "count", a.count(),
                 "threshold", a.threshold(),
@@ -62,6 +65,8 @@ public class IncidentForwarder {
                 "usernames", a.usernames(),
                 "paths", a.paths(),
                 "samples", a.samples()));
+        if (a.distinctCount() != null) evidence.put("distinctCount", a.distinctCount());
+        body.put("evidence", evidence);
         return body;
     }
 
