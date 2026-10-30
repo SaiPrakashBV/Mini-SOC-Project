@@ -13,3 +13,7 @@ logs/
 *.iml
 .vscode/
 .DS_Store
+
+# python
+__pycache__/
+*.pyc

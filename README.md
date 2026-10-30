@@ -39,7 +39,8 @@ analysts triage from a dashboard.
 | `fluent-bit/` | Tails the target app's log file and ships to OpenSearch (`security-events-YYYY.MM.DD`) |
 | `opensearch/` | Index templates, 14-day retention (ISM) policy, an example native Alerting monitor, and an init script |
 | `database/` | PostgreSQL first-run initialization (read-only reporting role) |
-| `scripts/` | `generate-env.sh` (random secrets), `simulate-attacks.sh` (attack scenarios) |
+| `scripts/` | `generate-env.sh` / `.ps1` (random secrets), `simulate-attacks.sh` / `.ps1` (all-in-one attack scenarios) |
+| `attack-simulators/` | Six standalone Python attack campaigns (run locally or via `docker compose run --rm attacker …`) |
 | `docker-compose.yml` | The whole stack |
 
 ## Quick start
@@ -146,7 +147,22 @@ minimal WAF that inspects the path, query parameters and headers (not request bo
 `MALICIOUS_REQUEST` event with `attack_type`, and blocks payloads with HTTP 400. Scanner user agents
 are logged but not blocked.
 
-Simulator scenarios (run one, several, or the groups `basic` / `advanced`; no argument runs all):
+### Attack simulators
+
+[`attack-simulators/`](attack-simulators/README.md) contains six standalone attack campaigns:
+credential-stuffing botnet, vulnerability scanner, malicious insider, session hijack, Log4Shell
+campaign and layer-7 DDoS. Run each one on its own and watch its detections appear in the dashboard:
+
+```bash
+docker compose run --rm attacker 1_credential_stuffing.py
+```
+
+```bash
+python attack-simulators/2_vulnerability_scanner.py
+```
+
+The original all-in-one script is still available. Run one scenario, several, or the groups
+`basic` / `advanced`; no argument runs all:
 
 | Group | Scenarios |
 |---|---|

@@ -187,6 +187,28 @@ services:
         condition: service_healthy
     networks: [soc-net]
 
+  # ------------------------------------------------------- attack simulators
+  # Runs the Python simulators from ./attack-simulators inside the network, so no
+  # local Python install is needed:
+  #   docker compose run --rm attacker 1_credential_stuffing.py
+  attacker:
+    image: python:3.12-alpine
+    profiles: ["attacks"]
+    working_dir: /sims
+    entrypoint: ["python", "-u"]
+    command: ["--version"]
+    environment:
+      TARGET: http://target-app:8080
+      DEMO_ALICE_PASSWORD: ${DEMO_ALICE_PASSWORD}
+      DEMO_BOB_PASSWORD: ${DEMO_BOB_PASSWORD}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD}
+    volumes:
+      - ./attack-simulators:/sims:ro
+    depends_on:
+      target-app:
+        condition: service_healthy
+    networks: [soc-net]
+
 networks:
   soc-net:
     name: mini-soc-net
