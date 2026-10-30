@@ -1,0 +1,47 @@
+server:
+  port: 8080
+  # Don't leak stack traces / exception messages to clients.
+  error:
+    include-message: never
+    include-stacktrace: never
+
+spring:
+  application:
+    name: target-app
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+app:
+  log-dir: ${LOG_DIR:./logs}
+  security:
+    # Required. Provide via environment (JWT_SECRET) - never commit real secrets.
+    jwt-secret: ${JWT_SECRET}
+    jwt-ttl: ${JWT_TTL:30m}
+    jwt-issuer: mini-soc-target-app
+    # Honour X-Forwarded-For. Enabled in docker-compose so the attack simulator can
+    # emulate many source IPs; disable in production unless behind a trusted proxy.
+    trust-forwarded-for: ${TRUST_FORWARDED_FOR:false}
+    users:
+      - username: alice
+        password: ${DEMO_ALICE_PASSWORD}
+        email: alice@example.com
+        roles: [USER]
+      - username: bob
+        password: ${DEMO_BOB_PASSWORD}
+        email: bob@example.com
+        roles: [USER]
+      - username: admin
+        password: ${DEMO_ADMIN_PASSWORD}
+        email: admin@example.com
+        roles: [USER, ADMIN]

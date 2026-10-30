@@ -1,0 +1,132 @@
+server:
+  port: 8082
+  error:
+    include-message: never
+    include-stacktrace: never
+
+spring:
+  application:
+    name: detection-service
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+app:
+  security:
+    # Same analyst accounts as the incident tracker so the dashboard uses one login.
+    analysts:
+      - username: analyst1
+        password: ${ANALYST1_PASSWORD}
+      - username: lead
+        password: ${SOC_LEAD_PASSWORD}
+
+detection:
+  # ISO-8601 durations (PT15S = 15 seconds), as required by @Scheduled.
+  poll-interval: ${DETECTION_POLL_INTERVAL:PT15S}
+  initial-delay: PT20S
+  opensearch:
+    url: ${OPENSEARCH_URL:http://localhost:9200}
+    username: ${OPENSEARCH_USER:}
+    password: ${OPENSEARCH_PASSWORD:}
+    event-index: security-events-*
+    alert-index: soc-alerts
+  tracker:
+    url: ${TRACKER_URL:http://localhost:8081}
+    api-key: ${TRACKER_API_KEY}
+    enabled: true
+
+  # ---------------------------------------------------------------------------
+  # Detection rules. Each rule counts matching events per `group-by` value in a
+  # sliding `window` and fires when the count reaches `threshold`.
+  # ---------------------------------------------------------------------------
+  rules:
+    - id: BRUTE_FORCE_LOGIN
+      name: Potential brute-force login
+      description: Repeated failed logins against the same account in a short period.
+      severity: HIGH
+      window: 2m
+      threshold: 5
+      escalate-at: 20
+      escalate-to: CRITICAL
+      group-by: username
+      match:
+        event_type: [LOGIN_FAILURE]
+      mitre: T1110.001
+
+    - id: PASSWORD_SPRAY
+      name: Password spraying from single source
+      description: One source IP failing logins across many requests - typical of credential stuffing or spraying.
+      severity: HIGH
+      window: 5m
+      threshold: 10
+      group-by: source_ip
+      match:
+        event_type: [LOGIN_FAILURE]
+      mitre: T1110.003
+
+    - id: AUTH_ERROR_SPIKE
+      name: Spike in 401/403 responses
+      description: A source is receiving an unusual number of authentication/authorization errors.
+      severity: MEDIUM
+      window: 5m
+      threshold: 15
+      escalate-at: 60
+      escalate-to: HIGH
+      group-by: source_ip
+      match:
+        event_type: [HTTP_REQUEST]
+        http_status: ["401", "403"]
+
+    - id: HIGH_REQUEST_RATE
+      name: Unusual request volume
+      description: A single source exceeded the normal request rate (possible scraping, enumeration or DoS).
+      severity: MEDIUM
+      window: 1m
+      threshold: 100
+      escalate-at: 500
+      escalate-to: HIGH
+      group-by: source_ip
+      match:
+        event_type: [HTTP_REQUEST]
+      mitre: T1498
+
+    - id: RESTRICTED_ENDPOINT_ACCESS
+      name: Attempted access to admin endpoints
+      description: A non-admin principal repeatedly tried to reach restricted /api/admin resources.
+      severity: HIGH
+      window: 5m
+      threshold: 3
+      group-by: username
+      match:
+        event_type: [ACCESS_DENIED]
+      path-prefix: /api/admin
+      mitre: T1068
+
+    - id: IDOR_ATTEMPT
+      name: Access to other users' resources
+      description: A user repeatedly requested objects they do not own (possible IDOR enumeration).
+      severity: HIGH
+      window: 10m
+      threshold: 3
+      group-by: username
+      match:
+        event_type: [RESOURCE_OWNERSHIP_VIOLATION]
+      mitre: T1087
+
+    - id: INVALID_TOKEN_ABUSE
+      name: Repeated invalid JWTs
+      description: Many forged, tampered or expired tokens from one source.
+      severity: MEDIUM
+      window: 5m
+      threshold: 10
+      group-by: source_ip
+      match:
+        event_type: [TOKEN_INVALID]
+      mitre: T1550.001

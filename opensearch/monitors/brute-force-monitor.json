@@ -1,0 +1,44 @@
+{
+  "type": "monitor",
+  "name": "Native monitor - brute-force logins",
+  "monitor_type": "bucket_level_monitor",
+  "enabled": true,
+  "schedule": { "period": { "interval": 1, "unit": "MINUTES" } },
+  "inputs": [
+    {
+      "search": {
+        "indices": ["security-events-*"],
+        "query": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                { "range": { "@timestamp": { "gte": "{{period_end}}||-2m", "lte": "{{period_end}}", "format": "epoch_millis" } } },
+                { "term": { "event_type": "LOGIN_FAILURE" } }
+              ]
+            }
+          },
+          "aggregations": {
+            "composite_agg": {
+              "composite": { "sources": [{ "username": { "terms": { "field": "username" } } }] }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "triggers": [
+    {
+      "bucket_level_trigger": {
+        "name": "five-or-more-failures",
+        "severity": "2",
+        "condition": {
+          "buckets_path": { "failures": "_count" },
+          "parent_bucket_path": "composite_agg",
+          "script": { "source": "params.failures >= 5", "lang": "painless" }
+        },
+        "actions": []
+      }
+    }
+  ]
+}

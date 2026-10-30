@@ -1,0 +1,12 @@
+app:
+  security:
+    analysts:
+      - username: analyst1
+        password: analyst-pass
+detection:
+  initial-delay: PT1H
+  opensearch:
+    url: http://localhost:1
+  tracker:
+    url: http://localhost:1
+    api-key: test-api-key-0123456789

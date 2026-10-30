@@ -1,0 +1,44 @@
+{
+  "index_patterns": ["security-events-*"],
+  "priority": 100,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "2s"
+    },
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "strings_as_keywords": {
+            "match_mapping_type": "string",
+            "mapping": { "type": "keyword", "ignore_above": 512 }
+          }
+        }
+      ],
+      "properties": {
+        "@timestamp":      { "type": "date" },
+        "message":         { "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } } },
+        "service":         { "type": "keyword" },
+        "level":           { "type": "keyword" },
+        "logger_name":     { "type": "keyword" },
+        "log_type":        { "type": "keyword" },
+        "event_type":      { "type": "keyword" },
+        "event_category":  { "type": "keyword" },
+        "outcome":         { "type": "keyword" },
+        "username":        { "type": "keyword" },
+        "source_ip":       { "type": "keyword" },
+        "correlation_id":  { "type": "keyword" },
+        "http_method":     { "type": "keyword" },
+        "http_path":       { "type": "keyword" },
+        "http_status":     { "type": "integer" },
+        "duration_ms":     { "type": "long" },
+        "user_agent":      { "type": "keyword", "ignore_above": 512 },
+        "reason":          { "type": "keyword" },
+        "roles":           { "type": "keyword" },
+        "resource_id":     { "type": "keyword" },
+        "stack_trace":     { "type": "text" }
+      }
+    }
+  }
+}

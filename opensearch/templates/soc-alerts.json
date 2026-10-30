@@ -1,0 +1,30 @@
+{
+  "index_patterns": ["soc-alerts"],
+  "priority": 100,
+  "template": {
+    "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+    "mappings": {
+      "properties": {
+        "@timestamp":  { "type": "date" },
+        "alertId":     { "type": "keyword" },
+        "ruleId":      { "type": "keyword" },
+        "ruleName":    { "type": "keyword" },
+        "description": { "type": "text" },
+        "severity":    { "type": "keyword" },
+        "mitre":       { "type": "keyword" },
+        "groupBy":     { "type": "keyword" },
+        "entity":      { "type": "keyword" },
+        "count":       { "type": "long" },
+        "threshold":   { "type": "integer" },
+        "window":      { "type": "keyword" },
+        "firstSeen":   { "type": "date" },
+        "lastSeen":    { "type": "date" },
+        "sourceIps":   { "type": "keyword" },
+        "usernames":   { "type": "keyword" },
+        "paths":       { "type": "keyword" },
+        "samples":     { "type": "object", "enabled": false },
+        "incidentId":  { "type": "long" }
+      }
+    }
+  }
+}

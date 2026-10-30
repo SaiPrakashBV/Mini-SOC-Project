@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:soc;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password: ""
+app:
+  security:
+    service-api-key: test-api-key-0123456789
+    analysts:
+      - username: analyst1
+        password: analyst-pass
+        display-name: Tier-1 Analyst
+        roles: [ANALYST]

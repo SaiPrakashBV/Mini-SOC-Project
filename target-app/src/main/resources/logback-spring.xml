@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  All output is structured JSON (one object per line). Security audit events and access
+  logs go to both stdout and ${LOG_DIR}/app.json; Fluent Bit tails the file and ships it
+  to OpenSearch.
+-->
+<configuration>
+    <springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="target-app"/>
+    <springProperty scope="context" name="LOG_DIR" source="app.log-dir" defaultValue="./logs"/>
+
+    <property name="JSON_FIELDS" value='{"service":"${APP_NAME}"}'/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSS'Z'</timestampPattern>
+            <timeZone>UTC</timeZone>
+            <includeContext>false</includeContext>
+            <customFields>${JSON_FIELDS}</customFields>
+            <excludeMdcKeyName>username</excludeMdcKeyName>
+            <fieldNames>
+                <levelValue>[ignore]</levelValue>
+                <version>[ignore]</version>
+            </fieldNames>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/app.json</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/app.%d{yyyy-MM-dd}.%i.json</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSS'Z'</timestampPattern>
+            <timeZone>UTC</timeZone>
+            <includeContext>false</includeContext>
+            <customFields>${JSON_FIELDS}</customFields>
+            <excludeMdcKeyName>username</excludeMdcKeyName>
+            <fieldNames>
+                <levelValue>[ignore]</levelValue>
+                <version>[ignore]</version>
+            </fieldNames>
+        </encoder>
+    </appender>
+
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="FILE"/>
+        <neverBlock>true</neverBlock>
+    </appender>
+
+    <logger name="SECURITY_AUDIT" level="INFO"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE"/>
+    </root>
+</configuration>

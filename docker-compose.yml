@@ -1,0 +1,198 @@
+# Mini SOC - full local stack.
+#
+#   cp .env.example .env      # then edit the secrets
+#   docker compose up -d --build
+#
+# Published ports (localhost only where possible):
+#   3000  SOC dashboard (React + nginx; proxies to incident-tracker & detection-service)
+#   8080  target-app (the monitored application / attack surface)
+#   9200  OpenSearch REST API (127.0.0.1 only, for debugging)
+#   5601  OpenSearch Dashboards (127.0.0.1 only, `--profile tools`)
+# PostgreSQL, incident-tracker and detection-service are only reachable on the
+# internal network.
+
+name: mini-soc
+
+x-spring-defaults: &spring-defaults
+  restart: unless-stopped
+  networks: [soc-net]
+  environment: &spring-env
+    JAVA_OPTS: "-XX:MaxRAMPercentage=75 -Duser.timezone=UTC"
+
+services:
+  # ---------------------------------------------------------------- data stores
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: soc
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d soc"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [soc-net]
+
+  opensearch:
+    image: opensearchproject/opensearch:2.17.1
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms${OPENSEARCH_HEAP:-512m} -Xmx${OPENSEARCH_HEAP:-512m}"
+      # Lab setup: the security plugin is disabled and the port is bound to localhost.
+      # See README "Hardening" to enable TLS + auth.
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - "127.0.0.1:9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=2s >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [soc-net]
+
+  opensearch-init:
+    image: curlimages/curl:8.10.1
+    entrypoint: ["/bin/sh", "/init/init.sh"]
+    environment:
+      OPENSEARCH_URL: http://opensearch:9200
+    volumes:
+      - ./opensearch:/init:ro
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    restart: "no"
+    networks: [soc-net]
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.17.1
+    profiles: ["tools"]
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+    ports:
+      - "127.0.0.1:5601:5601"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks: [soc-net]
+
+  # ------------------------------------------------------------ log pipeline
+  fluent-bit:
+    image: fluent/fluent-bit:3.1.9
+    restart: unless-stopped
+    environment:
+      OPENSEARCH_HOST: opensearch
+      OPENSEARCH_PORT: "9200"
+    volumes:
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - target-logs:/var/log/target-app:ro
+      - fluent-bit-state:/fluent-bit/state
+    depends_on:
+      opensearch-init:
+        condition: service_completed_successfully
+    networks: [soc-net]
+
+  # ------------------------------------------------------------- applications
+  target-app:
+    <<: *spring-defaults
+    build: ./target-app
+    environment:
+      <<: *spring-env
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      DEMO_ALICE_PASSWORD: ${DEMO_ALICE_PASSWORD:?set DEMO_ALICE_PASSWORD in .env}
+      DEMO_BOB_PASSWORD: ${DEMO_BOB_PASSWORD:?set DEMO_BOB_PASSWORD in .env}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?set DEMO_ADMIN_PASSWORD in .env}
+      # Lets the attack simulator spoof X-Forwarded-For to emulate many attackers.
+      TRUST_FORWARDED_FOR: ${TRUST_FORWARDED_FOR:-true}
+      LOG_DIR: /var/log/target-app
+    volumes:
+      - target-logs:/var/log/target-app
+    ports:
+      - "${TARGET_APP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  incident-tracker:
+    <<: *spring-defaults
+    build: ./incident-tracker
+    environment:
+      <<: *spring-env
+      DB_URL: jdbc:postgresql://postgres:5432/soc
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      TRACKER_API_KEY: ${TRACKER_API_KEY:?set TRACKER_API_KEY in .env}
+      ANALYST1_PASSWORD: ${ANALYST1_PASSWORD:?set ANALYST1_PASSWORD in .env}
+      SOC_LEAD_PASSWORD: ${SOC_LEAD_PASSWORD:?set SOC_LEAD_PASSWORD in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  detection-service:
+    <<: *spring-defaults
+    build: ./detection-service
+    environment:
+      <<: *spring-env
+      OPENSEARCH_URL: http://opensearch:9200
+      TRACKER_URL: http://incident-tracker:8081
+      TRACKER_API_KEY: ${TRACKER_API_KEY}
+      ANALYST1_PASSWORD: ${ANALYST1_PASSWORD}
+      SOC_LEAD_PASSWORD: ${SOC_LEAD_PASSWORD}
+      DETECTION_POLL_INTERVAL: ${DETECTION_POLL_INTERVAL:-PT15S}
+    depends_on:
+      opensearch-init:
+        condition: service_completed_successfully
+      incident-tracker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-3000}:80"
+    depends_on:
+      incident-tracker:
+        condition: service_healthy
+      detection-service:
+        condition: service_healthy
+    networks: [soc-net]
+
+networks:
+  soc-net:
+    name: mini-soc-net
+
+volumes:
+  postgres-data:
+  opensearch-data:
+  target-logs:
+  fluent-bit-state:

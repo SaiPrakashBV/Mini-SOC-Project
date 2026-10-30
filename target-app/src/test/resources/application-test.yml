@@ -1,0 +1,17 @@
+app:
+  log-dir: target/test-logs
+  security:
+    jwt-secret: test-secret-test-secret-test-secret-0123456789
+    users:
+      - username: alice
+        password: alice-pass
+        email: alice@example.com
+        roles: [USER]
+      - username: bob
+        password: bob-pass
+        email: bob@example.com
+        roles: [USER]
+      - username: admin
+        password: admin-pass
+        email: admin@example.com
+        roles: [USER, ADMIN]
