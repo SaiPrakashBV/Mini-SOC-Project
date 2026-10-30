@@ -1,0 +1,14 @@
+# Files that run or are parsed inside Linux containers must keep LF line endings,
+# even when the repo is checked out on Windows (core.autocrlf=true would turn them
+# into CRLF and break bash with "$'\r': command not found").
+*.sh        text eol=lf
+*.conf      text eol=lf
+*.sql       text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+Dockerfile  text eol=lf
+.env.example text eol=lf
+
+# Windows-only scripts
+*.ps1       text eol=crlf

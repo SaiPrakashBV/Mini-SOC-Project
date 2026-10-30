@@ -74,6 +74,31 @@ docker compose --profile tools up -d opensearch-dashboards   # http://localhost:
 
 Without `generate-env.sh`, copy `.env.example` to `.env` and replace every `change-me` value.
 
+### Windows
+
+Use Docker Desktop (WSL 2 backend) and the PowerShell versions of the scripts. They work from
+Command Prompt or PowerShell:
+
+```bat
+powershell -ExecutionPolicy Bypass -File scripts\generate-env.ps1
+```
+
+```bat
+docker compose up -d --build
+```
+
+```bat
+powershell -ExecutionPolicy Bypass -File scripts\simulate-attacks.ps1
+```
+
+Run one scenario with `... simulate-attacks.ps1 bruteforce`. The `.gitattributes` file keeps shell
+scripts and configs mounted into Linux containers on LF line endings. If you cloned before it existed,
+refresh your working copy once:
+
+```bat
+git rm -r --cached -q . && git reset --hard
+```
+
 ## Example workflow: brute force → incident → resolution
 
 1. `./scripts/simulate-attacks.sh bruteforce` sends 6 wrong passwords for `alice` from `203.0.113.66`.
