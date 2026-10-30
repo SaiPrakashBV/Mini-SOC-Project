@@ -3,7 +3,7 @@
 *.env.local
 
 # build output
-target/
+/*/target/
 node_modules/
 dist/
 logs/
