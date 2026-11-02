@@ -28,6 +28,9 @@ analysts triage from a dashboard.
  └──────────────┘ ────────────► detection-service
 ```
 
+**Full documentation:** [`docs/Mini-SOC-Documentation.pdf`](docs/Mini-SOC-Documentation.pdf) (49 pages): architecture
+diagrams, every file explained, data model, deployment, security controls, attack simulation, testing and troubleshooting.
+
 ## Repository layout
 
 | Path | What it is |
