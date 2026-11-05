@@ -31,6 +31,10 @@ analysts triage from a dashboard.
 **Full documentation:** [`docs/Mini-SOC-Documentation.pdf`](docs/Mini-SOC-Documentation.pdf) (49 pages): architecture
 diagrams, every file explained, data model, deployment, security controls, attack simulation, testing and troubleshooting.
 
+**Presentations:** [`docs/Mini-SOC-Technical-Presentation.pptx`](docs/Mini-SOC-Technical-Presentation.pptx) (21 slides,
+about 30 min, technical audience) and [`docs/Mini-SOC-Presentation.pptx`](docs/Mini-SOC-Presentation.pptx) (16 slides,
+about 15 min, mixed audience), both with speaker notes.
+
 ## Repository layout
 
 | Path | What it is |
